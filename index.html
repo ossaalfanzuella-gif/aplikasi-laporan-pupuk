@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laporan - Sistem Pupuk Subsidi</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Set Firebase Log Level
+        setLogLevel('Debug');
+
+        // Global variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db, auth, userId = null;
+        let isAuthReady = false;
+        let incomingStockData = [];
+        let salesData = [];
+        const USER_LEVEL_ADMIN = 1;
+        const USER_LEVEL_OPERATOR = 2;
+        let userLevel = USER_LEVEL_OPERATOR;
+        let displayedSalesData = []; // Store currently filtered data for export
+
+        // --- Utility Functions ---
+
+        // Utility function to format date
+        const formatDate = (timestamp) => {
+            try {
+                if (!timestamp) return 'N/A';
+                const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+                return date.toLocaleDateString('id-ID', { year: 'numeric', month: '2-digit', day: '2-digit' });
+            } catch (e) {
+                console.error("Error formatting timestamp:", e);
+                return 'Tgl Error';
+            }
+        };
+        
+        // Utility function to format number
+        const formatNumber = (num) => {
+            return new Intl.NumberFormat('id-ID').format(num || 0);
+        };
+
+        // Get the date string for input fields (YYYY-MM-DD)
+        const getDateString = (date) => {
+            return date.toISOString().split('T')[0];
+        };
+
+        // --- Firebase Initialization and Authentication ---
+        const initFirebase = async () => {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        // Simple simulation: Admin if UID ends in 1
+                        userLevel = userId.endsWith('1') ? USER_LEVEL_ADMIN : USER_LEVEL_OPERATOR;
+                        updateUI(user.email || 'Pengguna ' + userId.substring(0, 4));
+                        startDataListeners();
+                    } else {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    }
+                    isAuthReady = true;
+                });
+
+                document.getElementById('logoutButton').addEventListener('click', async () => {
+                    await signOut(auth);
+                    location.reload(); 
+                });
+
+            } catch (error) {
+                console.error("Error initializing Firebase or signing in:", error);
+                displayMessage("Error saat inisialisasi aplikasi. Cek console log.", 'error');
+            }
+        };
+
+        // --- UI Update Functions & State Management ---
+
+        const updateUI = (userName) => {
+            const userNameSpan = document.getElementById('userName');
+            const setupLink = document.getElementById('setupAdminLink');
+            const userIdSpan = document.getElementById('userIdDisplay');
+
+            const levelText = userLevel === USER_LEVEL_ADMIN ? 'Admin' : 'Operator';
+            if (userNameSpan) userNameSpan.innerHTML = `Halo, <strong>${userName}</strong> (Level: ${levelText})`;
+            if (userIdSpan) userIdSpan.textContent = `User ID: ${userId}`;
+
+            // Show Setup Admin link only for Admin
+            if (setupLink) {
+                if (userLevel === USER_LEVEL_ADMIN) {
+                    setupLink.classList.remove('hidden');
+                } else {
+                    setupLink.classList.add('hidden');
+                }
+            }
+            
+            // Set default date filters (Start of Month to Today)
+            const today = new Date();
+            const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+            document.getElementById('tanggal_mulai').value = getDateString(firstDayOfMonth);
+            document.getElementById('tanggal_akhir').value = getDateString(today);
+        };
+
+        const displayMessage = (message, type = 'info') => {
+            const messageContainer = document.getElementById('messageContainer');
+            if (!messageContainer) return;
+
+            let classes = '';
+            if (type === 'error') classes = 'bg-red-100 border-red-500 text-red-700';
+            else if (type === 'success') classes = 'bg-green-100 border-green-500 text-green-700';
+            else classes = 'bg-blue-100 border-blue-500 text-blue-700';
+
+            messageContainer.innerHTML = `
+                <div class="p-4 rounded-xl border-l-4 ${classes} mb-4" role="alert">
+                    <p class="font-bold">${type.toUpperCase()}</p>
+                    <p>${message}</p>
+                </div>
+            `;
+            setTimeout(() => { messageContainer.innerHTML = ''; }, 5000);
+        };
+        
+        // --- Data Listeners ---
+        const startDataListeners = () => {
+            if (!db || !userId) return;
+            document.getElementById('reportBody').innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Memuat data transaksi...</td></tr>';
+
+            // 1. Listen for Incoming Stock (Private Collection)
+            const incomingRef = collection(db, `artifacts/${appId}/users/${userId}/incoming_stock`);
+            onSnapshot(incomingRef, (snapshot) => {
+                incomingStockData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                loadReportData(); 
+            }, (error) => {
+                console.error("Error fetching incoming stock:", error);
+                displayMessage("Gagal memuat data stok masuk.", 'error');
+            });
+
+            // 2. Listen for Sales Transactions (Public Collection)
+            const salesRef = collection(db, `artifacts/${appId}/public/data/report_transactions`);
+            onSnapshot(salesRef, (snapshot) => {
+                salesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                loadReportData(); 
+            }, (error) => {
+                console.error("Error fetching sales data:", error);
+                displayMessage("Gagal memuat data penjualan.", 'error');
+            });
+        };
+
+        // --- Report Generation Logic (Triggered by Filter Button or Data Update) ---
+        window.loadReportData = () => {
+            if (!isAuthReady || !userId || !db) {
+                document.getElementById('reportBody').innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Menunggu otentikasi...</td></tr>';
+                return;
+            }
+
+            const startDateString = document.getElementById('tanggal_mulai').value;
+            const endDateString = document.getElementById('tanggal_akhir').value;
+            const filterPupuk = document.getElementById('jenis_pupuk_filter').value;
+            
+            // Date objects for filtering
+            const startDate = startDateString ? new Date(startDateString) : null;
+            let endDate = endDateString ? new Date(endDateString) : null;
+            
+            // Adjust end date to include the whole selected day (23:59:59.999)
+            if (endDate) endDate.setHours(23, 59, 59, 999);
+
+
+            // 1. Filter Sales Data
+            const filteredSales = salesData.filter(item => {
+                const itemDate = item.timestamp?.toDate ? item.timestamp.toDate() : new Date(item.timestamp || 0);
+
+                const passesDate = (!startDate || itemDate >= startDate) && (!endDate || itemDate <= endDate);
+                
+                const passesPupuk = filterPupuk === 'all' || (item.jenisPupuk && item.jenisPupuk.toLowerCase() === filterPupuk.toLowerCase());
+
+                return passesDate && passesPupuk;
+            });
+            
+            // 2. Filter Stock Data (for total masuk calculation)
+            const filteredIncoming = incomingStockData.filter(item => {
+                const itemDate = item.timestamp?.toDate ? item.timestamp.toDate() : new Date(item.timestamp || 0);
+
+                const passesDate = (!startDate || itemDate >= startDate) && (!endDate || itemDate <= endDate);
+                const passesPupuk = filterPupuk === 'all' || (item.jenisPupuk && item.jenisPupuk.toLowerCase() === filterPupuk.toLowerCase());
+
+                return passesDate && passesPupuk;
+            });
+
+            // Store the filtered data for CSV export
+            displayedSalesData = filteredSales;
+
+            // 3. Calculate Summaries
+            const totalSalesKg = filteredSales.reduce((sum, item) => sum + (item.kuantitas || 0), 0);
+            const totalTransactions = filteredSales.length;
+            const totalStockInKg = filteredIncoming.reduce((sum, item) => sum + (item.kuantitas || 0), 0);
+
+            // 4. Update Summary Cards
+            document.getElementById('totalSalesCard').textContent = formatNumber(totalSalesKg);
+            document.getElementById('totalTransactionsCard').textContent = formatNumber(totalTransactions);
+            document.getElementById('totalStockInCard').textContent = formatNumber(totalStockInKg);
+
+            // 5. Populate Detail Table
+            const reportBody = document.getElementById('reportBody');
+            reportBody.innerHTML = '';
+
+            if (filteredSales.length === 0) {
+                reportBody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Tidak ada data penjualan dalam periode ini.</td></tr>';
+                return;
+            }
+
+            // Sort by date descending
+            filteredSales.sort((a, b) => {
+                const dateA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
+                const dateB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
+                return dateB - dateA; // descending
+            });
+
+            filteredSales.forEach((item, index) => {
+                const row = reportBody.insertRow();
+                row.className = index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-50 hover:bg-gray-100';
+                
+                // Petani ID displayed for tracking, limited to 4 chars for UI space
+                const displayUserId = (item.userId || 'N/A').substring(0, 4);
+
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${formatDate(item.timestamp)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${item.namaPetani || 'N/A'} (ID:${displayUserId})</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-primary-pupuk font-medium">${item.jenisPupuk || 'N/A'}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">${formatNumber(item.kuantitas)} KG</td>
+                `;
+            });
+        };
+        
+        // --- Export to CSV Function ---
+        const exportToCSV = () => {
+            if (displayedSalesData.length === 0) {
+                displayMessage("Tidak ada data yang difilter untuk diexport.", 'info');
+                return;
+            }
+
+            let csvContent = "data:text/csv;charset=utf-8,";
+            
+            // Headers
+            csvContent += "Tanggal,Nama Petani,ID Petani,Pupuk,Kuantitas (KG)\r\n";
+            
+            // Data Rows
+            displayedSalesData.forEach(item => {
+                const date = formatDate(item.timestamp);
+                const nama = item.namaPetani || 'N/A';
+                const userIdShort = (item.userId || 'N/A').substring(0, 8);
+                const pupuk = item.jenisPupuk || 'N/A';
+                const kuantitas = item.kuantitas || 0;
+                
+                // Simple CSV escaping (just enclosing fields in quotes if they contain commas)
+                const rowData = [date, nama, userIdShort, pupuk, kuantitas].map(field => {
+                    let data = String(field).trim().replace(/"/g, '""');
+                    if (data.includes(',')) {
+                        data = `"${data}"`;
+                    }
+                    return data;
+                }).join(",");
+                
+                csvContent += rowData + "\r\n";
+            });
+
+            // Trigger download
+            const filterPupuk = document.getElementById('jenis_pupuk_filter').value;
+            const startDate = document.getElementById('tanggal_mulai').value;
+            const endDate = document.getElementById('tanggal_akhir').value;
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `Laporan_Penjualan_${filterPupuk}_${startDate}_to_${endDate}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            displayMessage(`Berhasil mengekspor ${displayedSalesData.length} baris data penjualan.`, 'success');
+        };
+
+
+        // --- Event Listeners Setup ---
+        window.onload = () => {
+            initFirebase();
+            
+            // Attach event listeners to trigger report generation when filters change
+            document.getElementById('filterButton').addEventListener('click', loadReportData);
+            document.getElementById('jenis_pupuk_filter').addEventListener('change', loadReportData);
+            // The export button now calls the CSV export function
+            document.getElementById('exportButton').addEventListener('click', exportToCSV);
+            
+            // Also trigger filter if dates change (optional, but good UX)
+            document.getElementById('tanggal_mulai').addEventListener('change', loadReportData);
+            document.getElementById('tanggal_akhir').addEventListener('change', loadReportData);
+        };
+    </script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: { 'primary-pupuk': '#0d9488', }
+                }
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <!-- Header / Navbar -->
+    <nav class="bg-primary-pupuk shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex">
+                    <div class="flex-shrink-0 flex items-center">
+                        <span class="text-white text-xl font-bold">Pupuk Subsidi (Laporan)</span>
+                    </div>
+                    <div class="hidden sm:-my-px sm:ml-6 sm:flex sm:space-x-8">
+                        <!-- Navigasi Utama -->
+                        <a href="pupuk.html" class="border-transparent text-teal-100 hover:border-gray-300 hover:text-white inline-flex items-center px-1 pt-1 text-sm font-medium transition duration-150">
+                            Dashboard
+                        </a>
+                        <a href="pupuk_subsidi_masuk.html" class="border-transparent text-teal-100 hover:border-gray-300 hover:text-white inline-flex items-center px-1 pt-1 text-sm font-medium transition duration-150">
+                            Stok Masuk
+                        </a>
+                        <a href="pupuk_subsidi_jual.html" class="border-transparent text-teal-100 hover:border-gray-300 hover:text-white inline-flex items-center px-1 pt-1 text-sm font-medium transition duration-150">
+                            Penjualan
+                        </a>
+                        <a href="pupuk_subsidi_laporan.html" class="border-b-2 border-white text-white inline-flex items-center px-1 pt-1 text-sm font-medium">
+                            Laporan
+                        </a>
+                        <!-- Setup Admin Link (hidden for non-admin) -->
+                        <a href="setup.html" id="setupAdminLink" class="hidden border-transparent text-teal-100 hover:border-gray-300 hover:text-white inline-flex items-center px-1 pt-1 text-sm font-medium transition duration-150">
+                            Setup Admin
+                        </a>
+                    </div>
+                </div>
+                <div class="hidden sm:ml-6 sm:flex sm:items-center">
+                    <!-- Informasi Pengguna & Tombol Logout -->
+                    <span class="text-white text-sm mr-4 text-right" id="userName">
+                        Memuat Pengguna...
+                    </span>
+                    <button id="logoutButton" class="bg-red-600 hover:bg-red-700 text-white font-medium py-1 px-3 rounded-lg text-sm transition duration-150 shadow-md">
+                        Logout
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Konten Utama -->
+    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <p class="text-sm text-gray-500 mb-4" id="userIdDisplay">User ID: Memuat...</p>
+
+        <div id="messageContainer"></div>
+
+        <div class="bg-white p-8 rounded-xl shadow-lg">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b pb-3">Laporan & Analisis Data Pupuk</h2>
+            <p class="text-gray-600">Gunakan filter di bawah untuk melihat ringkasan dan detail transaksi.</p>
+
+            <!-- Form Filter Laporan -->
+            <div class="mt-8 p-6 bg-gray-50 rounded-xl shadow-inner border border-gray-200">
+                <h3 class="text-lg font-semibold text-gray-700 mb-4">Filter Laporan</h3>
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+                    <!-- Dari Tanggal -->
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2" for="tanggal_mulai">Dari Tanggal</label>
+                        <input class="shadow appearance-none border rounded-xl w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-primary-pupuk" id="tanggal_mulai" type="date">
+                    </div>
+                    <!-- Sampai Tanggal -->
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2" for="tanggal_akhir">Sampai Tanggal</label>
+                        <input class="shadow appearance-none border rounded-xl w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-primary-pupuk" id="tanggal_akhir" type="date">
+                    </div>
+                    <!-- Jenis Pupuk -->
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2" for="jenis_pupuk_filter">Jenis Pupuk</label>
+                        <select class="shadow border rounded-xl w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-primary-pupuk" id="jenis_pupuk_filter">
+                            <option value="all">Semua</option>
+                            <option value="urea">Urea</option>
+                            <option value="npk">NPK</option>
+                            <option value="za">ZA</option>
+                        </select>
+                    </div>
+                    <!-- Tombol Tampilkan Laporan -->
+                    <button id="filterButton" class="bg-primary-pupuk hover:bg-teal-700 text-white font-bold py-2.5 px-4 rounded-xl focus:outline-none focus:shadow-outline transition duration-150 shadow-md transform hover:scale-[1.02]">
+                        Tampilkan Laporan
+                    </button>
+                    <!-- Tombol Export -->
+                    <button id="exportButton" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2.5 px-4 rounded-xl transition duration-150 shadow-md transform hover:scale-[1.02]">
+                        <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        Export CSV
+                    </button>
+                </div>
+            </div>
+
+            <!-- Area Hasil Laporan -->
+            <div class="mt-8">
+                <h3 class="text-xl font-semibold text-gray-800 mb-4">Ringkasan Kinerja (Periode Terpilih)</h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- Card Total Penjualan -->
+                    <div class="bg-blue-50 p-6 rounded-xl border-l-4 border-blue-500 shadow-md">
+                        <p class="text-sm font-medium text-blue-700">Total Penjualan (KG)</p>
+                        <p class="text-3xl font-bold text-blue-900 mt-1" id="totalSalesCard">0</p>
+                    </div>
+                    <!-- Card Total Transaksi -->
+                    <div class="bg-green-50 p-6 rounded-xl border-l-4 border-green-500 shadow-md">
+                        <p class="text-sm font-medium text-green-700">Total Transaksi</p>
+                        <p class="text-3xl font-bold text-green-900 mt-1" id="totalTransactionsCard">0</p>
+                    </div>
+                    <!-- Card Total Stok Masuk -->
+                    <div class="bg-yellow-50 p-6 rounded-xl border-l-4 border-yellow-500 shadow-md">
+                        <p class="text-sm font-medium text-yellow-700">Total Stok Masuk (KG)</p>
+                        <p class="text-3xl font-bold text-yellow-900 mt-1" id="totalStockInCard">0</p>
+                    </div>
+                </div>
+
+                <div class="mt-8 pt-6 border-t">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Detail Laporan Penjualan</h3>
+                    <div class="overflow-x-auto rounded-xl border shadow-sm">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Tanggal</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Petani (User ID)</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Pupuk</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Kuantitas (KG)</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200" id="reportBody">
+                                <!-- Data dimuat oleh JavaScript -->
+                                <tr>
+                                    <td colspan="4" class="px-6 py-4 text-center text-gray-500">Memuat data dan menunggu filter...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+</body>
+</html>
