@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Penjualan Pupuk (Stok Keluar)</title>
+    <!-- Memuat Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom styles for better readability and mobile focus */
+        body {
+            background-color: #f7f9fb;
+            font-family: 'Inter', sans-serif;
+        }
+        .card {
+            background-color: #ffffff;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+        .text-gradient {
+            background-image: linear-gradient(to right, #10b981, #06b6d4);
+            -webkit-background-clip: text;
+            color: transparent;
+        }
+        .input-style {
+            transition: all 0.2s;
+        }
+        .input-style:focus {
+            border-color: #06b6d4;
+            box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.3);
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+    <div id="app" class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6 text-center text-gray-800">
+            Catat Penjualan <span class="text-gradient">Pupuk Subsidi</span>
+        </h1>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Kolom Informasi Stok -->
+            <div id="stock-info-card" class="card rounded-xl p-6 lg:col-span-1 h-fit">
+                <h2 class="text-xl font-semibold mb-4 border-b pb-2 text-gray-700 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 13.5a3.5 3.5 0 105.746 2.872.75.75 0 00-.737-1.396A2 2 0 114.5 14a.75.75 0 00-1.5 0zM15.5 17a3.5 3.5 0 10-5.746-2.872.75.75 0 00.737 1.396A2 2 0 1115.5 16a.75.75 0 001.5 0z" />
+                    </svg>
+                    Stok Pupuk Tersedia (kg)
+                </h2>
+                <div id="stock-summary" class="space-y-3">
+                    <p class="text-gray-500 italic">Memuat data stok...</p>
+                    <!-- Data Stok akan diisi di sini -->
+                </div>
+                <div id="auth-status" class="mt-4 text-xs text-gray-400">Status Auth: Memuat...</div>
+                <div id="user-id-display" class="mt-1 text-xs text-gray-400">User ID: N/A</div>
+            </div>
+
+            <!-- Kolom Formulir Penjualan -->
+            <div class="card rounded-xl p-6 lg:col-span-2">
+                <form id="sales-form">
+                    <div class="space-y-4">
+                        
+                        <!-- Nama Pelanggan -->
+                        <div>
+                            <label for="nama_pelanggan" class="block text-sm font-medium text-gray-700 mb-1">Nama Pelanggan / Kelompok Tani</label>
+                            <input type="text" id="nama_pelanggan" required
+                                class="input-style w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500"
+                                placeholder="Cth: Kelompok Tani Makmur"
+                            >
+                        </div>
+                        
+                        <!-- Jenis Pupuk -->
+                        <div>
+                            <label for="jenis_pupuk" class="block text-sm font-medium text-gray-700 mb-1">Jenis Pupuk</label>
+                            <select id="jenis_pupuk" required
+                                class="input-style w-full p-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-cyan-500"
+                            >
+                                <option value="" disabled selected>Pilih Jenis Pupuk</option>
+                                <option value="Urea">Urea</option>
+                                <option value="NPK">NPK</option>
+                                <option value="SP-36">SP-36</option>
+                                <option value="ZA">ZA</option>
+                                <option value="Organik">Organik</option>
+                            </select>
+                        </div>
+
+                        <!-- Jumlah (kg) -->
+                        <div>
+                            <label for="jumlah_kg" class="block text-sm font-medium text-gray-700 mb-1">Jumlah Jual (kg)</label>
+                            <input type="number" id="jumlah_kg" required min="1"
+                                class="input-style w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500"
+                                placeholder="Cth: 500"
+                            >
+                        </div>
+
+                        <!-- Tanggal Penjualan -->
+                        <div>
+                            <label for="tanggal_penjualan" class="block text-sm font-medium text-gray-700 mb-1">Tanggal Penjualan</label>
+                            <input type="date" id="tanggal_penjualan" required
+                                class="input-style w-full p-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-cyan-500"
+                            >
+                        </div>
+
+                        <!-- Tombol Simpan -->
+                        <button type="submit" id="save-button"
+                            class="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-4 rounded-xl transition duration-200 shadow-md hover:shadow-lg disabled:bg-gray-400 flex items-center justify-center"
+                            disabled
+                        >
+                            <svg id="spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Simpan Penjualan (Stok Keluar)
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Status Notifikasi -->
+                <div id="message-box" class="mt-6 p-3 rounded-lg text-sm text-center transition-opacity duration-300 hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, runTransaction, updateDoc, query, where, getDocs, getDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db, auth, userId = null;
+        let isAuthReady = false;
+        
+        // Konstanta untuk nama koleksi dan dokumen
+        const SALES_COLLECTION_PATH = `artifacts/${appId}/public/data/sales_transactions`;
+        const INVENTORY_DOC_PATH = `artifacts/${appId}/public/data/inventory_stock/pupuk_stock_summary`;
+
+        // === UTILITY FUNCTIONS ===
+
+        function showMessage(message, type = 'success') {
+            const box = document.getElementById('message-box');
+            box.textContent = message;
+            box.className = 'mt-6 p-3 rounded-lg text-sm text-center transition-opacity duration-300';
+            box.classList.remove('hidden');
+
+            if (type === 'success') {
+                box.classList.add('bg-green-100', 'text-green-800');
+            } else if (type === 'error') {
+                box.classList.add('bg-red-100', 'text-red-800');
+            } else {
+                box.classList.add('bg-blue-100', 'text-blue-800');
+            }
+
+            setTimeout(() => {
+                box.classList.add('hidden');
+            }, 5000);
+        }
+
+        function toggleLoading(isLoading) {
+            const button = document.getElementById('save-button');
+            const spinner = document.getElementById('spinner');
+            if (isLoading) {
+                button.disabled = true;
+                spinner.classList.remove('hidden');
+                button.classList.add('opacity-70');
+                button.textContent = 'Memproses...';
+            } else {
+                button.disabled = !isAuthReady; // Re-enable if auth is ready
+                spinner.classList.add('hidden');
+                button.classList.remove('opacity-70');
+                button.textContent = 'Simpan Penjualan (Stok Keluar)';
+            }
+        }
+
+        // === FIREBASE & AUTH SETUP ===
+
+        if (firebaseConfig) {
+            setLogLevel('debug');
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+        } else {
+            document.getElementById('auth-status').textContent = 'Kesalahan: Konfigurasi Firebase tidak ditemukan.';
+            showMessage('Kesalahan: Konfigurasi Firebase tidak ditemukan.', 'error');
+        }
+
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                userId = user.uid;
+                document.getElementById('auth-status').textContent = 'Status Auth: Terhubung';
+                document.getElementById('user-id-display').textContent = `User ID: ${userId}`;
+            } else {
+                try {
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (error) {
+                    console.error("Gagal melakukan sign-in:", error);
+                    document.getElementById('auth-status').textContent = 'Status Auth: Gagal Sign-In';
+                    showMessage('Gagal Sign-In. Periksa konsol.', 'error');
+                }
+            }
+            isAuthReady = true;
+            toggleLoading(false); // Enable button once auth is ready
+            setupStockListener();
+        });
+
+
+        // === REALTIME STOCK LISTENER ===
+
+        function setupStockListener() {
+            if (!db || !isAuthReady) return;
+
+            const stockSummaryEl = document.getElementById('stock-summary');
+            const docRef = doc(db, INVENTORY_DOC_PATH);
+
+            onSnapshot(docRef, (docSnap) => {
+                stockSummaryEl.innerHTML = '';
+                
+                if (docSnap.exists() && docSnap.data()) {
+                    const stockData = docSnap.data();
+                    let hasStock = false;
+                    
+                    for (const [pupukType, totalKg] of Object.entries(stockData)) {
+                        if (typeof totalKg === 'number' && totalKg > 0) {
+                            hasStock = true;
+                            const stockItem = document.createElement('p');
+                            stockItem.className = 'text-lg font-medium text-gray-800 flex justify-between items-center';
+                            stockItem.innerHTML = `
+                                <span>${pupukType}:</span>
+                                <span class="text-blue-600 font-bold">${totalKg.toLocaleString('id-ID')} kg</span>
+                            `;
+                            stockSummaryEl.appendChild(stockItem);
+                        }
+                    }
+
+                    if (!hasStock) {
+                        stockSummaryEl.innerHTML = '<p class="text-gray-500 italic">Saat ini, stok semua pupuk kosong.</p>';
+                    }
+
+                } else {
+                    stockSummaryEl.innerHTML = '<p class="text-red-500 italic">Belum ada data stok yang diinput (Pupuk Masuk).</p>';
+                }
+            }, (error) => {
+                console.error("Kesalahan mendengarkan stok:", error);
+                stockSummaryEl.innerHTML = '<p class="text-red-500 italic">Gagal memuat stok. Cek koneksi.</p>';
+            });
+        }
+
+        // === SALES SUBMISSION HANDLER ===
+
+        document.getElementById('sales-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!db || !userId) {
+                showMessage('Sistem belum siap. Coba lagi sebentar.', 'error');
+                return;
+            }
+
+            toggleLoading(true);
+
+            const namaPelanggan = document.getElementById('nama_pelanggan').value.trim();
+            const jenisPupuk = document.getElementById('jenis_pupuk').value;
+            const jumlahKg = parseFloat(document.getElementById('jumlah_kg').value);
+            const tanggalPenjualan = document.getElementById('tanggal_penjualan').value;
+
+            if (jumlahKg <= 0 || isNaN(jumlahKg)) {
+                showMessage('Jumlah penjualan harus lebih dari 0.', 'error');
+                toggleLoading(false);
+                return;
+            }
+
+            const docRef = doc(db, INVENTORY_DOC_PATH);
+
+            try {
+                // 1. Jalankan Transaksi untuk memastikan konsistensi stok
+                await runTransaction(db, async (transaction) => {
+                    const stockDoc = await transaction.get(docRef);
+
+                    if (!stockDoc.exists()) {
+                        throw new Error("Data stok induk tidak ditemukan. Silakan input Stok Masuk terlebih dahulu.");
+                    }
+
+                    const currentStock = stockDoc.data();
+                    const availableStock = currentStock[jenisPupuk] || 0;
+
+                    if (availableStock < jumlahKg) {
+                        throw new Error(`Stok ${jenisPupuk} hanya tersedia ${availableStock.toLocaleString('id-ID')} kg. Tidak cukup untuk penjualan ${jumlahKg.toLocaleString('id-ID')} kg.`);
+                    }
+
+                    // Hitung Stok Baru
+                    const newStock = availableStock - jumlahKg;
+                    
+                    // 2. Catat Transaksi Penjualan (Stok Keluar)
+                    const salesData = {
+                        timestamp: Date.now(),
+                        tanggal_penjualan: tanggalPenjualan,
+                        nama_pelanggan: namaPelanggan,
+                        jenis_pupuk: jenisPupuk,
+                        jumlah_kg: jumlahKg,
+                        userId: userId,
+                    };
+                    
+                    const newSaleRef = doc(collection(db, SALES_COLLECTION_PATH));
+                    transaction.set(newSaleRef, salesData);
+
+                    // 3. Kurangi Stok Induk (Update Inventory)
+                    const newInventoryData = {
+                        ...currentStock,
+                        [jenisPupuk]: newStock,
+                    };
+                    transaction.set(docRef, newInventoryData);
+                });
+
+                // Sukses
+                showMessage('Penjualan berhasil dicatat dan stok berhasil dikurangi!', 'success');
+                document.getElementById('sales-form').reset();
+                document.getElementById('tanggal_penjualan').valueAsDate = new Date(); // Reset date to today
+
+            } catch (error) {
+                console.error("Kesalahan saat menyimpan penjualan:", error);
+                // Menampilkan pesan error yang lebih spesifik kepada pengguna
+                const errorMessage = error.message.includes("Stok") ? error.message : "Gagal menyimpan penjualan. Periksa konsol untuk detail teknis.";
+                showMessage(errorMessage, 'error');
+            } finally {
+                toggleLoading(false);
+            }
+        });
+
+        // Setel tanggal hari ini sebagai default pada input tanggal
+        window.onload = () => {
+            document.getElementById('tanggal_penjualan').valueAsDate = new Date();
+        };
+
+    </script>
+</body>
+</html>
