@@ -1,35 +1,193 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <header class="mb-8">
-        <nav class="bg-indigo-700 p-3 md:p-4 rounded-xl shadow-lg flex flex-wrap justify-center space-x-2 md:space-x-6">
-            <a href="index.html" class="nav-item">
-                Beranda (Filter)
-            </a>
-            <a href="laporan_stok_pupuk.html" class="nav-item">
-                Laporan Stok
-            </a>
-            <a href="penjualan_stok_keluar.html" class="nav-item">
-                Stok Keluar
-            </a>
-        </nav>
-    </header>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Laporan Stok Pupuk Subsidi</title>
+    <title>Sistem Informasi Stok Pupuk - Laporan</title>
+    
     <!-- Memuat Tailwind CSS untuk styling yang cepat dan responsif -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Import Firebase SDK (Modul) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signInWithCustomToken, 
+            onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            collection, 
+            query, 
+            onSnapshot,
+            setLogLevel 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- GLOBAL SETUP & VARIABLES ---
+        
+        // Ensure global canvas variables are available
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db, auth;
+        let currentUserId = null;
+        
+        // Firestore path: Using Public path for shared data
+        // /artifacts/{appId}/public/data/fertilizer_stock
+        const getCollectionPath = (appId) => `/artifacts/${appId}/public/data/fertilizer_stock`;
+
+        // --- AUTHENTICATION AND INITIALIZATION ---
+        
+        async function initApp() {
+            if (!firebaseConfig) {
+                console.error("Firebase config is not available.");
+                document.getElementById('reportList').innerHTML = '<tr><td colspan="3" class="p-4 text-red-600 font-bold text-center">Error: Konfigurasi Firebase tidak ditemukan.</td></tr>';
+                return;
+            }
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // Set debug level
+                setLogLevel('Debug');
+                
+                // Sign in with custom token or anonymously
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                // Auth state listener
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        currentUserId = user.uid;
+                        document.getElementById('userIdDisplay').textContent = `ID Pengguna Aktif: ${currentUserId}`;
+                        console.log("User authenticated. UID:", currentUserId);
+                        // Start listening to data after successful authentication
+                        setupRealtimeListener(db, appId);
+                        document.getElementById('loadingIndicator').classList.add('hidden');
+                    } else {
+                        currentUserId = crypto.randomUUID(); // Temporary anonymous ID
+                        document.getElementById('userIdDisplay').textContent = `ID Pengguna Anonim: ${currentUserId}`;
+                        console.error("Authentication failed, using temporary anonymous ID.");
+                        document.getElementById('loadingIndicator').classList.add('hidden');
+                    }
+                });
+                
+            } catch (error) {
+                console.error("Firebase initialization error:", error);
+                document.getElementById('reportList').innerHTML = '<tr><td colspan="3" class="p-4 text-red-600 font-bold text-center">Error Inisialisasi. Cek console log.</td></tr>';
+            }
+        }
+
+        // --- FIREBASE DATA LISTENERS & AGGREGATION ---
+
+        function setupRealtimeListener(db, appId) {
+            const stockCollectionRef = collection(db, getCollectionPath(appId));
+            const q = query(stockCollectionRef);
+
+            // Real-time listener
+            onSnapshot(q, (snapshot) => {
+                let allStockData = [];
+                snapshot.forEach((doc) => {
+                    allStockData.push({ id: doc.id, ...doc.data() });
+                });
+                console.log("New data received. Total entries:", allStockData.length);
+                
+                // Aggregate and render the data
+                const aggregated = aggregateData(allStockData);
+                renderReport(aggregated);
+            }, (error) => {
+                console.error("Failed to get data snapshot:", error);
+                document.getElementById('reportList').innerHTML = '<tr><td colspan="3" class="p-4 text-red-600 font-bold text-center">Gagal memuat data stok.</td></tr>';
+            });
+        }
+        
+        /**
+         * Aggregates fertilizer stock data by name.
+         * @param {Array<Object>} data - The raw list of stock entries.
+         * @returns {Array<Object>} The aggregated list.
+         */
+        function aggregateData(data) {
+            const aggregatedMap = {};
+
+            data.forEach(item => {
+                const name = item.name || 'Tidak Bernama';
+                const quantity = item.quantity && typeof item.quantity === 'number' ? item.quantity : 0;
+                const type = item.type || '-';
+
+                // Skip items without a name or valid quantity (e.g., deleted items or malformed data)
+                if (!name || quantity <= 0) return; 
+
+                if (aggregatedMap[name]) {
+                    // Sum the quantity
+                    aggregatedMap[name].totalQuantity += quantity;
+                } else {
+                    // Initialize new entry
+                    aggregatedMap[name] = {
+                        name: name,
+                        type: type, // Take the type from the first entry encountered
+                        totalQuantity: quantity
+                    };
+                }
+            });
+
+            // Convert map back to an array
+            return Object.values(aggregatedMap);
+        }
+        
+        // --- RENDERING LOGIC ---
+
+        function renderReport(aggregatedData) {
+            const reportListElement = document.getElementById('reportList');
+            if (aggregatedData.length === 0) {
+                reportListElement.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-gray-500">Tidak ada data stok pupuk yang ditemukan.</td></tr>`;
+                return;
+            }
+
+            // Sort data alphabetically by name
+            aggregatedData.sort((a, b) => a.name.localeCompare(b.name));
+
+            let html = '';
+            aggregatedData.forEach(item => {
+                html += `
+                    <tr class="border-b hover:bg-green-50/50 transition duration-150">
+                        <td class="p-3 text-sm font-medium text-gray-900">${item.name || '-'}</td>
+                        <td class="p-3 text-sm text-gray-700">${item.type || '-'}</td>
+                        <td class="p-3 text-sm font-bold text-right text-indigo-700 whitespace-nowrap">${item.totalQuantity ? item.totalQuantity.toLocaleString('id-ID') : 0} kg/unit</td>
+                    </tr>
+                `;
+            });
+
+            reportListElement.innerHTML = html;
+        }
+
+        // --- EVENT LISTENERS ---
+        
+        window.onload = function() {
+            initApp();
+        };
+
+    </script>
+    
     <style>
         /* Menggunakan font Inter untuk tampilan modern */
         body {
             font-family: 'Inter', sans-serif;
             background-color: #f4f7f9;
         }
-        /* Styling tambahan untuk card dan tabel */
+        /* Styling tambahan untuk card */
         .card {
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
-        
         /* Definisi Styling Navigasi */
         .nav-item {
             padding: 8px 12px;
@@ -39,7 +197,7 @@
             border-radius: 8px;
             text-decoration: none;
             display: block;
-            margin: 4px 0; /* Untuk tampilan mobile */
+            margin: 4px 0;
             text-align: center;
         }
         .nav-item:hover {
@@ -53,285 +211,57 @@
         }
     </style>
 </head>
+
 <body class="p-4 md:p-8">
-    <div id="app" class="max-w-7xl mx-auto">
-        <h1 class="text-3xl font-bold mb-8 text-center text-gray-800">
-            Dashboard <span class="text-green-600">Laporan Stok</span> Pupuk
-        </h1>
+    
+    <!-- HEADER & NAVIGASI -->
+    <header class="mb-8">
+        <nav class="bg-indigo-700 p-3 md:p-4 rounded-xl shadow-lg flex flex-wrap justify-center space-x-2 md:space-x-6">
+            <a href="index.html" class="nav-item">
+                Beranda (Filter)
+            </a>
+            <a href="laporan_stok_pupuk.html" class="nav-item nav-active"> 
+                Laporan Stok
+            </a>
+            <a href="penjualan_stok_keluar.html" class="nav-item">
+                Stok Keluar
+            </a>
+        </nav>
+    </header>
+
+    <!-- KONTEN UTAMA -->
+    <main class="max-w-4xl mx-auto">
         
-        <!-- Status & Auth Info -->
-        <div class="mb-6 flex justify-between items-center text-xs text-gray-500">
-            <div id="auth-status">Status Auth: Memuat...</div>
-            <div id="user-id-display">User ID: N/A</div>
-        </div>
-
-        <!-- 1. Ringkasan Stok Akhir (Net Balance) -->
-        <div id="summary-section" class="card rounded-xl p-6 mb-8 border-l-4 border-cyan-500">
-            <h2 class="text-2xl font-semibold mb-4 text-gray-700 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-                Ringkasan Stok Pupuk Akhir (Sisa)
-            </h2>
-            <div id="stock-summary-content" class="grid grid-cols-2 md:grid-cols-5 gap-4">
-                <p class="text-gray-500 italic col-span-5">Memuat data ringkasan stok...</p>
-            </div>
-        </div>
-
-        <!-- 2. Riwayat Stok Masuk -->
-        <div id="in-history-section" class="card rounded-xl p-6 mb-8 border-l-4 border-green-500">
-            <h2 class="text-2xl font-semibold mb-4 text-gray-700 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Riwayat Stok Masuk (Penambahan)
-            </h2>
-            <div class="table-container">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tanggal Masuk</th>
-                            <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jenis Pupuk</th>
-                            <th scope="col" class="text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Jumlah (kg)</th>
-                            <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sumber</th>
-                        </tr>
-                    </thead>
-                    <tbody id="stock-in-history" class="bg-white divide-y divide-gray-200">
-                        <!-- Data akan diisi oleh JavaScript -->
-                        <tr><td colspan="4" class="text-center py-4 text-gray-500 italic">Memuat riwayat stok masuk...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- 3. Riwayat Stok Keluar -->
-        <div id="out-history-section" class="card rounded-xl p-6 border-l-4 border-red-500">
-            <h2 class="text-2xl font-semibold mb-4 text-gray-700 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Riwayat Stok Keluar (Penjualan)
-            </h2>
-            <div class="table-container">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tanggal Jual</th>
-                            <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jenis Pupuk</th>
-                            <th scope="col" class="text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Jumlah (kg)</th>
-                            <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pelanggan</th>
-                        </tr>
-                    </thead>
-                    <tbody id="sales-history" class="bg-white divide-y divide-gray-200">
-                        <!-- Data akan diisi oleh JavaScript -->
-                        <tr><td colspan="4" class="text-center py-4 text-gray-500 italic">Memuat riwayat penjualan...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-    </div>
-
-    <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, collection, query, orderBy, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Global variables provided by the environment
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-        let db, auth, userId = null;
-        let isAuthReady = false;
+        <h1 class="text-3xl md:text-4xl font-extrabold text-indigo-800 mb-6">Ringkasan Stok Pupuk Kumulatif</h1>
         
-        // Konstanta untuk nama koleksi dan dokumen (harus sesuai dengan 2 file sebelumnya)
-        const IN_COLLECTION_PATH = `artifacts/${appId}/public/data/stock_in_transactions`;
-        const SALES_COLLECTION_PATH = `artifacts/${appId}/public/data/sales_transactions`;
-        const INVENTORY_DOC_PATH = `artifacts/${appId}/public/data/inventory_stock/pupuk_stock_summary`;
+        <!-- Indikator Loading & Pesan -->
+        <p id="userIdDisplay" class="text-xs text-gray-500 mb-4"></p>
+        <div id="loadingIndicator" class="text-center p-4 bg-yellow-100 text-yellow-800 rounded-lg font-semibold transition duration-300">
+            Memuat data dan menghitung ringkasan stok...
+        </div>
 
-        // === UTILITY FUNCTIONS ===
+        <!-- CARD LAPORAN HASIL -->
+        <div class="card bg-white rounded-xl overflow-x-auto border border-gray-200 mt-6">
+            <div class="p-6">
+                <h2 class="text-xl font-bold text-gray-700 mb-4">Total Stok Tersedia per Jenis</h2>
+            </div>
+            
+            <!-- Tabel Data Laporan -->
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-green-50">
+                    <tr>
+                        <th class="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Nama Pupuk</th>
+                        <th class="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Tipe Utama</th>
+                        <th class="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Total Stok (kg/unit)</th>
+                    </tr>
+                </thead>
+                <tbody id="reportList" class="bg-white divide-y divide-gray-200">
+                    <!-- Data ringkasan akan dimasukkan di sini oleh JavaScript -->
+                    <tr><td colspan="3" class="p-4 text-center text-gray-400">Menunggu data dimuat...</td></tr>
+                </tbody>
+            </table>
+        </div>
 
-        function formatDate(timestamp) {
-            if (typeof timestamp === 'string' && timestamp.length === 10 && timestamp.includes('-')) {
-                // Format YYYY-MM-DD
-                return timestamp.split('-').reverse().join('-');
-            }
-            if (typeof timestamp === 'number') {
-                // Format timestamp
-                return new Date(timestamp).toLocaleDateString('id-ID', {
-                    day: '2-digit', month: 'short', year: 'numeric'
-                });
-            }
-            return 'N/A';
-        }
-
-        // === FIREBASE & AUTH SETUP ===
-
-        if (firebaseConfig) {
-            setLogLevel('debug');
-            const app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
-        } else {
-            document.getElementById('auth-status').textContent = 'Kesalahan: Konfigurasi Firebase tidak ditemukan.';
-            console.error('Kesalahan: Konfigurasi Firebase tidak ditemukan.');
-        }
-
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                userId = user.uid;
-                document.getElementById('auth-status').textContent = 'Status Auth: Terhubung';
-                document.getElementById('user-id-display').textContent = `User ID: ${userId}`;
-            } else {
-                try {
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                } catch (error) {
-                    console.error("Gagal melakukan sign-in:", error);
-                    document.getElementById('auth-status').textContent = 'Status Auth: Gagal Sign-In';
-                }
-            }
-            isAuthReady = true;
-            if (db) {
-                setupListeners();
-            }
-        });
-
-        // === REALTIME LISTENERS ===
-
-        function setupListeners() {
-            renderStockSummary();
-            renderStockInHistory();
-            renderSalesHistory();
-        }
-
-        // --- 1. Ringkasan Stok Akhir ---
-        function renderStockSummary() {
-            const docRef = doc(db, INVENTORY_DOC_PATH);
-            const contentEl = document.getElementById('stock-summary-content');
-
-            onSnapshot(docRef, (docSnap) => {
-                contentEl.innerHTML = '';
-                
-                if (docSnap.exists() && docSnap.data()) {
-                    const stockData = docSnap.data();
-                    let hasStock = false;
-
-                    for (const [pupukType, totalKg] of Object.entries(stockData)) {
-                        const stockVal = totalKg || 0;
-                        hasStock = true;
-                        
-                        const itemDiv = document.createElement('div');
-                        itemDiv.className = 'p-4 rounded-lg shadow-md border';
-                        itemDiv.classList.add(stockVal > 0 ? 'bg-cyan-50 border-cyan-300' : 'bg-red-50 border-red-300');
-                        
-                        itemDiv.innerHTML = `
-                            <p class="text-sm font-medium text-gray-500">${pupukType}</p>
-                            <p class="text-xl font-bold mt-1 text-gray-800">${stockVal.toLocaleString('id-ID')} kg</p>
-                        `;
-                        contentEl.appendChild(itemDiv);
-                    }
-
-                    if (!hasStock) {
-                         contentEl.innerHTML = '<p class="text-red-500 italic col-span-5">Belum ada data stok yang tercatat di ringkasan.</p>';
-                    }
-
-                } else {
-                    contentEl.innerHTML = '<p class="text-red-500 italic col-span-5">Dokumen ringkasan stok belum dibuat. Silakan input Stok Masuk.</p>';
-                }
-            }, (error) => {
-                console.error("Kesalahan memuat ringkasan stok:", error);
-                contentEl.innerHTML = '<p class="text-red-500 italic col-span-5">Gagal memuat ringkasan. Cek koneksi.</p>';
-            });
-        }
-
-        // --- 2. Riwayat Stok Masuk ---
-        function renderStockInHistory() {
-            const q = query(collection(db, IN_COLLECTION_PATH)); 
-            const tbody = document.getElementById('stock-in-history');
-
-            onSnapshot(q, (querySnapshot) => {
-                tbody.innerHTML = ''; // Kosongkan tabel
-                
-                if (querySnapshot.empty) {
-                    tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-gray-500">Belum ada riwayat Stok Masuk.</td></tr>`;
-                    return;
-                }
-
-                const docs = [];
-                querySnapshot.forEach(doc => {
-                    docs.push({ id: doc.id, ...doc.data() });
-                });
-                
-                // Sort data by timestamp (or tanggal_masuk) manually since orderBy is avoided
-                docs.sort((a, b) => (b.timestamp || new Date(b.tanggal_masuk).getTime()) - (a.timestamp || new Date(a.tanggal_masuk).getTime()));
-
-                docs.forEach(data => {
-                    const row = tbody.insertRow();
-                    row.className = 'hover:bg-gray-50';
-                    
-                    row.insertCell().textContent = formatDate(data.tanggal_masuk);
-                    row.insertCell().textContent = data.jenis_pupuk;
-                    
-                    const amountCell = row.insertCell();
-                    amountCell.className = 'text-right font-semibold text-green-700';
-                    amountCell.textContent = data.jumlah_kg.toLocaleString('id-ID');
-
-                    row.insertCell().textContent = data.sumber_pupuk;
-                });
-
-            }, (error) => {
-                console.error("Kesalahan memuat riwayat Stok Masuk:", error);
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-red-500">Gagal memuat riwayat masuk.</td></tr>`;
-            });
-        }
-
-        // --- 3. Riwayat Stok Keluar ---
-        function renderSalesHistory() {
-            const q = query(collection(db, SALES_COLLECTION_PATH));
-            const tbody = document.getElementById('sales-history');
-
-            onSnapshot(q, (querySnapshot) => {
-                tbody.innerHTML = ''; // Kosongkan tabel
-                
-                if (querySnapshot.empty) {
-                    tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-gray-500">Belum ada riwayat Penjualan (Stok Keluar).</td></tr>`;
-                    return;
-                }
-
-                const docs = [];
-                querySnapshot.forEach(doc => {
-                    docs.push({ id: doc.id, ...doc.data() });
-                });
-
-                // Sort data by timestamp (or tanggal_penjualan) manually
-                docs.sort((a, b) => (b.timestamp || new Date(b.tanggal_penjualan).getTime()) - (a.timestamp || new Date(a.tanggal_penjualan).getTime()));
-
-                docs.forEach(data => {
-                    const row = tbody.insertRow();
-                    row.className = 'hover:bg-gray-50';
-
-                    row.insertCell().textContent = formatDate(data.tanggal_penjualan);
-                    row.insertCell().textContent = data.jenis_pupuk;
-                    
-                    const amountCell = row.insertCell();
-                    amountCell.className = 'text-right font-semibold text-red-700';
-                    amountCell.textContent = data.jumlah_kg.toLocaleString('id-ID');
-                    
-                    row.insertCell().textContent = data.nama_pelanggan;
-                });
-            }, (error) => {
-                console.error("Kesalahan memuat riwayat penjualan:", error);
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-red-500">Gagal memuat riwayat penjualan.</td></tr>`;
-            });
-        }
-    </script>
+    </main>
 </body>
 </html>
-
-
