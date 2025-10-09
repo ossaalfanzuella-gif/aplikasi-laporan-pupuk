@@ -17,14 +17,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Laporan Stok Pupuk Subsidi</title>
-    <!-- Memuat Tailwind CSS -->
+    <!-- Memuat Tailwind CSS untuk styling yang cepat dan responsif -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Styling umum */
-        body { font-family: 'Inter', sans-serif; background-color: #f4f7f9; }
-        .card { box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+        /* Menggunakan font Inter untuk tampilan modern */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f7f9;
+        }
+        /* Styling tambahan untuk card dan tabel */
+        .card {
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
         
-        /* Definisi Styling Navigasi - SALIN DARI SINI */
+        /* Definisi Styling Navigasi */
         .nav-item {
             padding: 8px 12px;
             color: #e5e7eb; /* Abu muda */
@@ -33,12 +39,13 @@
             border-radius: 8px;
             text-decoration: none;
             display: block;
-            margin: 4px 0;
+            margin: 4px 0; /* Untuk tampilan mobile */
             text-align: center;
         }
         .nav-item:hover {
             background-color: #4338ca; /* Indigo 600 */
         }
+        /* Kelas aktif untuk halaman ini */
         .nav-active {
             background-color: #312e81; /* Indigo 900, lebih gelap untuk menunjukkan halaman aktif */
             color: white;
@@ -46,7 +53,7 @@
         }
     </style>
 </head>
-<body class="p-4 sm:p-8">
+<body class="p-4 md:p-8">
     <div id="app" class="max-w-7xl mx-auto">
         <h1 class="text-3xl font-bold mb-8 text-center text-gray-800">
             Dashboard <span class="text-green-600">Laporan Stok</span> Pupuk
@@ -326,4 +333,5 @@
     </script>
 </body>
 </html>
+
 
