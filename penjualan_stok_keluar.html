@@ -1,43 +1,56 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
+    <header class="mb-8">
+        <nav class="bg-indigo-700 p-3 md:p-4 rounded-xl shadow-lg flex flex-wrap justify-center space-x-2 md:space-x-6">
+            <a href="index.html" class="nav-item">
+                Beranda (Filter)
+            </a>
+            <a href="laporan_stok_pupuk.html" class="nav-item">
+                Laporan Stok
+            </a>
+            <!-- Tautan aktif untuk halaman ini -->
+            <a href="penjualan_stok_keluar.html" class="nav-item nav-active">
+                Stok Keluar
+            </a>
+        </nav>
+    </header>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Penjualan Pupuk (Stok Keluar)</title>
-    <!-- Memuat Tailwind CSS -->
+    <!-- Memuat Tailwind CSS untuk styling yang cepat dan responsif -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                    },
-                }
-            }
-        }
-    </script>
     <style>
-        /* Custom styles for better readability and mobile focus */
+        /* Menggunakan font Inter untuk tampilan modern */
         body {
-            background-color: #f7f9fb;
             font-family: 'Inter', sans-serif;
+            background-color: #f4f7f9;
         }
+        /* Styling tambahan untuk card dan tabel */
         .card {
-            background-color: #ffffff;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
-        .text-gradient {
-            background-image: linear-gradient(to right, #10b981, #06b6d4);
-            -webkit-background-clip: text;
-            color: transparent;
+        
+        /* Definisi Styling Navigasi */
+        .nav-item {
+            padding: 8px 12px;
+            color: #e5e7eb; /* Abu muda */
+            font-weight: 500;
+            transition: background-color 0.2s;
+            border-radius: 8px;
+            text-decoration: none;
+            display: block;
+            margin: 4px 0; /* Untuk tampilan mobile */
+            text-align: center;
         }
-        .input-style {
-            transition: all 0.2s;
+        .nav-item:hover {
+            background-color: #4338ca; /* Indigo 600 */
         }
-        .input-style:focus {
-            border-color: #06b6d4;
-            box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.3);
+        /* Kelas aktif untuk halaman ini (Pastikan ini yang Anda gunakan) */
+        .nav-active {
+            background-color: #312e81; /* Indigo 900, lebih gelap untuk menunjukkan halaman aktif */
+            color: white;
+            font-weight: 700;
         }
     </style>
 </head>
@@ -349,3 +362,4 @@
     </script>
 </body>
 </html>
+
